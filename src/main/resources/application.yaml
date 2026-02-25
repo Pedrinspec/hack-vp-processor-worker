@@ -11,6 +11,7 @@ aws:
   region: ${AWS_REGION:sa-east-1}
   access-key: ${ACCESS_KEY}
   access-secret: ${ACCESS_SECRET}
+  session-token: ${AWS_SESSION_TOKEN:}
   s3:
     bucket:
       video: ${S3_VIDEO_BUCKET:hack-vp-videos}

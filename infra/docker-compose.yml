@@ -1,0 +1,96 @@
+services:
+
+  # ---------------------------------------------------------------------------
+  # Apache Kafka — Broker de mensagens (modo KRaft, sem Zookeeper)
+  # ---------------------------------------------------------------------------
+  kafka:
+    image: apache/kafka:latest
+    container_name: kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qg
+    ports:
+      - "9092:9092"   # Rede interna (containers)
+      - "9094:9094"   # Acesso externo (host)
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Redis — Cache e gerenciamento de estado
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7.4-alpine
+    container_name: redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # vp-processor-worker — Aplicação principal
+  # ---------------------------------------------------------------------------
+  vp-processor-worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: vp-processor-worker
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_TIMEOUT: ${REDIS_TIMEOUT:-60000}
+
+      # AWS S3
+      AWS_REGION: ${AWS_REGION:-sa-east-1}
+      ACCESS_KEY: ${ACCESS_KEY}
+      ACCESS_SECRET: ${ACCESS_SECRET}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      S3_VIDEO_BUCKET: ${S3_VIDEO_BUCKET:-hack-vp-videos}
+
+      # Kafka
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      VIDEO_PROCESSOR_TOPIC: ${VIDEO_PROCESSOR_TOPIC:-video-processor-topic}
+      VIDEO_PROCESSOR_GROUP_ID: ${VIDEO_PROCESSOR_GROUP_ID:-video-processor}
+      AUTO_OFFSET_RESET_CONFIG: ${AUTO_OFFSET_RESET_CONFIG:-earliest}
+
+      # FFmpeg
+      FFMPEG_PATH: /usr/bin/ffmpeg
+
+      # JVM
+      JAVA_OPTS: ${JAVA_OPTS:--XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0}
+    restart: on-failure:3
+
+volumes:
+  kafka_data:
+  redis_data:
