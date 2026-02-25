@@ -14,7 +14,7 @@ public class ProcessorListener {
     private final VideoProcessorUseCase videoProcessorUseCase;
     private final Gson gson;
 
-    @KafkaListener(groupId = "${kafka.consumer.group-id}", topics = {"${kafka.consumer.topic}"})
+    @KafkaListener(groupId = "${kafka.consumer.group-id}", topics = {"${kafka.consumer.topic}"}, containerFactory = "customKafkaTemplate")
     public void processorListener(String processRequestJson) {
         ProcessRequest processRequest = gson.fromJson(processRequestJson, ProcessRequest.class);
         videoProcessorUseCase.execute(processRequest);
