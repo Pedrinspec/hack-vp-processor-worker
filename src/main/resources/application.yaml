@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: vp-processor-worker
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: ${REDIS_TIMEOUT:60000}
+
+aws:
+  region: ${AWS_REGION:sa-east-1}
+  access-key: ${ACCESS_KEY}
+  access-secret: ${ACCESS_SECRET}
+  s3:
+    bucket:
+      video: ${S3_VIDEO_BUCKET:hack-vp-videos}
+
+kafka:
+  bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  consumer:
+    auto-offset: ${AUTO_OFFSET_RESET_CONFIG:earliest}
+    topic: ${VIDEO_PROCESSOR_TOPIC:video-processor-topic}
+    group-id: ${VIDEO_PROCESSOR_GROUP_ID:video-processor}
+
+ffmpeg:
+  path: ${FFMPEG_PATH:}
