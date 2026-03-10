@@ -1,6 +1,10 @@
 package com.fiap.vp_processor_worker.infrastructure.adapter.output;
 
+import com.fiap.vp_processor_worker.application.ports.output.CacheOutput;
+import com.fiap.vp_processor_worker.application.ports.output.MessageOutput;
 import com.fiap.vp_processor_worker.application.ports.output.S3Output;
+import com.fiap.vp_processor_worker.domain.model.ProcessingStatus;
+import com.fiap.vp_processor_worker.domain.service.model.UploadError;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,7 +27,6 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequ
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PipedInputStream;
@@ -32,6 +35,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -42,6 +46,8 @@ public class S3OutputImpl implements S3Output {
 
     private final S3Client s3Client;
     private final S3Presigner s3Presigner;
+    private final CacheOutput cacheOutput;
+    private final MessageOutput messageOutput;
     @Value("${aws.s3.bucket.video}")
     private String videoBucket;
     @Value("${ffmpeg.path}")
@@ -58,10 +64,26 @@ public class S3OutputImpl implements S3Output {
     }
 
     @Override
-    public void generateFramesAndZipToS3(String videoKey) {
+    public void generateFramesAndZipToS3(UUID uploadId, String videoKey) {
 
         String zipKey = buildZipKey(videoKey);
         log.info("Starting frame generation for {}", videoKey);
+        ProcessingStatus processingStatus = cacheOutput.get(uploadId);
+
+        int startSecond = 0;
+        if (processingStatus != null && "PROCESSING".equals(processingStatus.getStatus())) {
+
+            startSecond = processingStatus.getLastSecondProcessed();
+
+            log.info("Resuming from second {}", startSecond);
+
+        } else {
+            cacheOutput.save(
+                    uploadId,
+                    new ProcessingStatus("PROCESSING", 0, System.currentTimeMillis())
+            );
+        }
+
 
         CreateMultipartUploadResponse createResponse = s3Client.createMultipartUpload(
                 CreateMultipartUploadRequest.builder()
@@ -71,7 +93,7 @@ public class S3OutputImpl implements S3Output {
                         .build()
         );
 
-        String uploadId = createResponse.uploadId();
+        String multipartUploadId = createResponse.uploadId();
         List<CompletedPart> completedParts = new ArrayList<>();
 
         try {
@@ -80,8 +102,12 @@ public class S3OutputImpl implements S3Output {
 
             ProcessBuilder pb = new ProcessBuilder(
                     ffmpegPath,
+                    "-threads", "0",
+                    "-ss", String.valueOf(startSecond),
+                    "-skip_frame", "nokey",
                     "-i", presignedUrl,
                     "-vf", "fps=1",
+                    "-vsync", "vfr",
                     "-q:v", "2",
                     "-f", "image2pipe",
                     "-vcodec", "mjpeg",
@@ -96,22 +122,45 @@ public class S3OutputImpl implements S3Output {
             PipedOutputStream zipOutPipe = new PipedOutputStream();
             PipedInputStream zipInputPipe = new PipedInputStream(zipOutPipe, 20 * 1024 * 1024);
 
+            final int startSecondSnapshot = startSecond;
+
             Thread zipThread = new Thread(() -> {
-                try (ZipOutputStream zipOut = new ZipOutputStream(new BufferedOutputStream(zipOutPipe))) {
-                    writeFramesToZip(ffmpegOutput, zipOut);
+
+                try (ZipOutputStream zipOut =
+                             new ZipOutputStream(new BufferedOutputStream(zipOutPipe))) {
+
+                    writeFramesToZip(
+                            uploadId,
+                            ffmpegOutput,
+                            zipOut,
+                            startSecondSnapshot
+                    );
+
                 } catch (Exception e) {
+
+                    messageOutput.sendFailMessage(UploadError.builder()
+                            .videoId(uploadId)
+                            .reason("Unexpected error")
+                            .details(e.getMessage())
+                            .build());
                     throw new RuntimeException(e);
+
                 }
             });
 
             zipThread.start();
 
-            uploadMultipartStream(zipKey, uploadId, zipInputPipe, completedParts);
+            uploadMultipartStream(zipKey, multipartUploadId, zipInputPipe, completedParts);
 
             zipThread.join();
 
             int exitCode = process.waitFor();
             if (exitCode != 0) {
+                messageOutput.sendFailMessage(UploadError.builder()
+                        .videoId(uploadId)
+                        .reason(String.valueOf(exitCode))
+                        .details("FFmpeg failed with code " + exitCode)
+                        .build());
                 throw new RuntimeException("FFmpeg failed with code " + exitCode);
             }
 
@@ -119,11 +168,21 @@ public class S3OutputImpl implements S3Output {
                     CompleteMultipartUploadRequest.builder()
                             .bucket(videoBucket)
                             .key(zipKey)
-                            .uploadId(uploadId)
+                            .uploadId(multipartUploadId)
                             .multipartUpload(CompletedMultipartUpload.builder()
                                     .parts(completedParts)
                                     .build())
                             .build()
+            );
+
+
+            cacheOutput.save(
+                    uploadId,
+                    new ProcessingStatus(
+                            "COMPLETED",
+                            startSecond,
+                            System.currentTimeMillis()
+                    )
             );
 
             log.info("Upload complete for {}", zipKey);
@@ -136,8 +195,17 @@ public class S3OutputImpl implements S3Output {
                     AbortMultipartUploadRequest.builder()
                             .bucket(videoBucket)
                             .key(zipKey)
-                            .uploadId(uploadId)
+                            .uploadId(multipartUploadId)
                             .build()
+            );
+
+            cacheOutput.save(
+                    uploadId,
+                    new ProcessingStatus(
+                            "FAILED",
+                            startSecond,
+                            System.currentTimeMillis()
+                    )
             );
 
             throw new RuntimeException(e);
@@ -208,41 +276,61 @@ public class S3OutputImpl implements S3Output {
         return totalRead;
     }
 
-    private void writeFramesToZip(InputStream ffmpegOutput,
-                                  ZipOutputStream zipOut) throws IOException {
-
-        ByteArrayOutputStream frameBuffer = null;
-        int frameIndex = 0;
+    private void writeFramesToZip(UUID uploadId,
+                                  InputStream ffmpegOutput,
+                                  ZipOutputStream zipOut,
+                                  int startSecond) throws IOException {
 
         int prev = -1;
         int current;
 
-        boolean writingFrame = false;
+        int frameIndex = 0;
+        int secondProcessed = startSecond;
+
+        ZipEntry currentEntry = null;
 
         while ((current = ffmpegOutput.read()) != -1) {
 
-            // Detectar início JPEG (FFD8)
-            if (!writingFrame && prev == 0xFF && current == 0xD8) {
-                writingFrame = true;
-                frameBuffer = new ByteArrayOutputStream();
-                frameBuffer.write(0xFF);
-                frameBuffer.write(0xD8);
-            } else if (writingFrame) {
-                frameBuffer.write(current);
+            if (prev == 0xFF && current == 0xD8) {
 
-                // Detectar fim JPEG (FFD9)
+                currentEntry = new ZipEntry(
+                        String.format("frames/frame_%05d.jpg", frameIndex++)
+                );
+
+                zipOut.putNextEntry(currentEntry);
+
+                zipOut.write(prev);
+                zipOut.write(current);
+
+                prev = current;
+                continue;
+            }
+
+            if (currentEntry != null) {
+
+                zipOut.write(current);
+
                 if (prev == 0xFF && current == 0xD9) {
 
-                    ZipEntry entry = new ZipEntry(
-                            String.format("frames/frame_%05d.jpg", frameIndex++)
-                    );
-
-                    zipOut.putNextEntry(entry);
-                    zipOut.write(frameBuffer.toByteArray());
                     zipOut.closeEntry();
 
-                    frameBuffer = null;
-                    writingFrame = false;
+                    secondProcessed++;
+
+                    if (frameIndex % 10 == 0) {
+
+                        cacheOutput.save(
+                                uploadId,
+                                new ProcessingStatus(
+                                        "PROCESSING",
+                                        secondProcessed,
+                                        System.currentTimeMillis()
+                                )
+                        );
+
+                        log.info("Second processed {}", secondProcessed);
+                    }
+
+                    currentEntry = null;
                 }
             }
 
