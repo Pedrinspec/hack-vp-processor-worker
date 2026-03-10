@@ -22,6 +22,9 @@ kafka:
     auto-offset: ${AUTO_OFFSET_RESET_CONFIG:earliest}
     topic: ${VIDEO_PROCESSOR_TOPIC:video-processor-topic}
     group-id: ${VIDEO_PROCESSOR_GROUP_ID:video-processor}
+  producer:
+    topic:
+      notification: ${VIDEO_NOTIFICATION_TOPIC:VideoFailed.v1}
 
 ffmpeg:
   path: ${FFMPEG_PATH:}
