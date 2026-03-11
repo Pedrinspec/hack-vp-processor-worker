@@ -25,3 +25,8 @@ kafka:
 
 ffmpeg:
   path: ${FFMPEG_PATH:}
+
+management:
+  health:
+    redis:
+      enabled: false
