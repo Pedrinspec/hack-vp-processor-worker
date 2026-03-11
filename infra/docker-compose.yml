@@ -32,6 +32,8 @@ services:
       # JVM
       JAVA_OPTS: ${JAVA_OPTS:--XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0}
     restart: on-failure:3
+    ports:
+      - "8080:8080"
     networks:
       - vp-network
 # =============================================================================

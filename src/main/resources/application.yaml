@@ -27,6 +27,19 @@ ffmpeg:
   path: ${FFMPEG_PATH:}
 
 management:
+  endpoint:
+    health:
+      show-details: "ALWAYS"
+      probes:
+        enabled: true
   health:
-    redis:
-      enabled: false
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+
+probe:
+  path: /actuator/health
+  port: http
+  initialDelaySecondsLiveness: 120
+  initialDelaySecondsReadness: 120
