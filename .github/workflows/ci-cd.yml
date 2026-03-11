@@ -34,6 +34,11 @@ jobs:
         run: mvn clean package -DskipTests --no-transfer-progress
 
       - name: Executar testes unitários
+        env:
+          ACCESS_KEY:        ${{ secrets.AWS_ACCESS_KEY_ID }}
+          ACCESS_SECRET:     ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION:        ${{ secrets.AWS_DEFAULT_REGION }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
         run: mvn test --no-transfer-progress
 
   deploy:
