@@ -61,6 +61,7 @@ public class S3OutputImpl implements S3Output {
             log.info("Busca realizada");
             return true;
         } catch (NoSuchKeyException e) {
+            log.error("Falha ao buscar video: {}", e.toString());
             return false;
         }
     }
