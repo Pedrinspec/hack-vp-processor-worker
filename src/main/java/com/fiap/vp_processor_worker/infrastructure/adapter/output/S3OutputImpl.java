@@ -20,6 +20,7 @@ import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -60,9 +61,14 @@ public class S3OutputImpl implements S3Output {
             s3Client.headObject(HeadObjectRequest.builder().bucket(videoBucket).key(key).build());
             log.info("Busca realizada");
             return true;
-        } catch (NoSuchKeyException e) {
-            log.error("Falha ao buscar video: {}", e.toString());
-            return false;
+        }catch (S3Exception e){
+            if (e.statusCode() == 404) {
+                log.warn("Objeto não encontrado: {}", key);
+                return false;
+            }
+
+            log.error("Erro ao consultar S3", e);
+            throw e;
         }
     }
 
