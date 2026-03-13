@@ -20,6 +20,7 @@ public class ProcessorListener {
     public void processorListener(String processRequestJson) {
         log.info("Mensagem recebida: {}", processRequestJson);
         ProcessRequest processRequest = gson.fromJson(processRequestJson, ProcessRequest.class);
+        log.info("json convertido para ProcessRequest: {}", processRequest);
         videoProcessorUseCase.execute(processRequest);
     }
 }
