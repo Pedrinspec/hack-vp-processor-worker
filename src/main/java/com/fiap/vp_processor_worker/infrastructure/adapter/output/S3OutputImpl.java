@@ -56,7 +56,9 @@ public class S3OutputImpl implements S3Output {
     @Override
     public boolean exists(String key) {
         try {
+            log.info("Procurando por vídeo {}", key);
             s3Client.headObject(HeadObjectRequest.builder().bucket(videoBucket).key(key).build());
+            log.info("Busca realizada");
             return true;
         } catch (NoSuchKeyException e) {
             return false;
