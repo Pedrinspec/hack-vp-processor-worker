@@ -18,6 +18,7 @@ public class VideoProcessorServiceImpl implements VideoProcessorService {
     @Override
     public void execute(ProcessRequest processRequest) {
         if (!s3Output.exists(processRequest.getKey())) {
+            log.info("Video Processor Service does not exist");
             throw new NoSuchVideoException(processRequest);
         }
         log.info("Video existe");
