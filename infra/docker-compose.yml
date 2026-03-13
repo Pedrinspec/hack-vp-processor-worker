@@ -25,6 +25,8 @@ services:
       VIDEO_PROCESSOR_TOPIC: ${VIDEO_PROCESSOR_TOPIC:-video-processor-topic}
       VIDEO_PROCESSOR_GROUP_ID: ${VIDEO_PROCESSOR_GROUP_ID:-video-processor}
       AUTO_OFFSET_RESET_CONFIG: ${AUTO_OFFSET_RESET_CONFIG:-earliest}
+      VIDEO_NOTIFICATION_TOPIC: ${VIDEO_NOTIFICATION_TOPIC:-video.failed.v1}
+      VIDEO_UPLOAD_TOPICP: ${VIDEO_UPLOAD_TOPIC:video.upload.status.v1}
 
       # FFmpeg
       FFMPEG_PATH: /usr/bin/ffmpeg

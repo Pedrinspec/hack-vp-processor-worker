@@ -4,6 +4,8 @@ import com.fiap.vp_processor_worker.application.ports.output.CacheOutput;
 import com.fiap.vp_processor_worker.application.ports.output.MessageOutput;
 import com.fiap.vp_processor_worker.application.ports.output.S3Output;
 import com.fiap.vp_processor_worker.domain.model.ProcessingStatus;
+import com.fiap.vp_processor_worker.domain.model.StatusUpdate;
+import com.fiap.vp_processor_worker.domain.model.enums.StatusEnum;
 import com.fiap.vp_processor_worker.domain.service.model.UploadError;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
@@ -19,7 +21,6 @@ import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
@@ -80,7 +81,7 @@ public class S3OutputImpl implements S3Output {
         ProcessingStatus processingStatus = cacheOutput.get(uploadId);
 
         int startSecond = 0;
-        if (processingStatus != null && "PROCESSING".equals(processingStatus.getStatus())) {
+        if (processingStatus != null && StatusEnum.PROCESSING.getValue().equals(processingStatus.getStatus())) {
 
             startSecond = processingStatus.getLastSecondProcessed();
 
@@ -89,7 +90,7 @@ public class S3OutputImpl implements S3Output {
         } else {
             cacheOutput.save(
                     uploadId,
-                    new ProcessingStatus("PROCESSING", 0, System.currentTimeMillis())
+                    new ProcessingStatus(StatusEnum.PROCESSING.getValue(), 0, System.currentTimeMillis())
             );
         }
 
@@ -152,6 +153,12 @@ public class S3OutputImpl implements S3Output {
                             .reason("Unexpected error")
                             .details(e.getMessage())
                             .build());
+
+                    messageOutput.sendStatusUpdate(StatusUpdate.builder()
+                            .uploadId(uploadId)
+                            .status(StatusEnum.PROCESSING_ERROR)
+                            .build());
+
                     throw new RuntimeException(e);
 
                 }
@@ -169,6 +176,11 @@ public class S3OutputImpl implements S3Output {
                         .videoId(uploadId)
                         .reason(String.valueOf(exitCode))
                         .details("FFmpeg failed with code " + exitCode)
+                        .build());
+
+                messageOutput.sendStatusUpdate(StatusUpdate.builder()
+                        .uploadId(uploadId)
+                        .status(StatusEnum.PROCESSING_ERROR)
                         .build());
                 throw new RuntimeException("FFmpeg failed with code " + exitCode);
             }
@@ -188,7 +200,7 @@ public class S3OutputImpl implements S3Output {
             cacheOutput.save(
                     uploadId,
                     new ProcessingStatus(
-                            "COMPLETED",
+                            StatusEnum.PROCESSED.getValue(),
                             startSecond,
                             System.currentTimeMillis()
                     )
@@ -211,11 +223,16 @@ public class S3OutputImpl implements S3Output {
             cacheOutput.save(
                     uploadId,
                     new ProcessingStatus(
-                            "FAILED",
+                            StatusEnum.PROCESSING_ERROR.getValue(),
                             startSecond,
                             System.currentTimeMillis()
                     )
             );
+
+            messageOutput.sendStatusUpdate(StatusUpdate.builder()
+                    .uploadId(uploadId)
+                    .status(StatusEnum.PROCESSING_ERROR)
+                    .build());
 
             throw new RuntimeException(e);
         }
@@ -330,7 +347,7 @@ public class S3OutputImpl implements S3Output {
                         cacheOutput.save(
                                 uploadId,
                                 new ProcessingStatus(
-                                        "PROCESSING",
+                                        StatusEnum.PROCESSING.getValue(),
                                         secondProcessed,
                                         System.currentTimeMillis()
                                 )

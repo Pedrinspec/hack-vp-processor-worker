@@ -22,6 +22,7 @@ kafka:
   producer:
     topic:
       notification: ${VIDEO_NOTIFICATION_TOPIC:VideoFailed.v1}
+      upload-status: ${VIDEO_UPLOAD_TOPIC:VideoUpload.v1}
 
 ffmpeg:
   path: ${FFMPEG_PATH:}

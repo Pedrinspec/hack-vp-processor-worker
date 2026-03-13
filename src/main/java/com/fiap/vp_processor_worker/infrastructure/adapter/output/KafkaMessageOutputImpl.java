@@ -1,6 +1,7 @@
 package com.fiap.vp_processor_worker.infrastructure.adapter.output;
 
 import com.fiap.vp_processor_worker.application.ports.output.MessageOutput;
+import com.fiap.vp_processor_worker.domain.model.StatusUpdate;
 import com.fiap.vp_processor_worker.domain.service.model.UploadError;
 import com.google.gson.Gson;
 import lombok.RequiredArgsConstructor;
@@ -19,9 +20,18 @@ public class KafkaMessageOutputImpl implements MessageOutput {
     @Value("${kafka.producer.topic.notification}")
     private String notificationTopic;
 
+    @Value("${kafka.producer.topic.upload-status}")
+    private String statusTopic;
+
     @Override
     public void sendFailMessage(UploadError uploadError) {
         ProducerRecord<String, String> producerRecord = new ProducerRecord<>(notificationTopic, gson.toJson(uploadError));
+        kafkaTemplate.send(producerRecord);
+    }
+
+    @Override
+    public void sendStatusUpdate(StatusUpdate statusUpdate) {
+        ProducerRecord<String, String> producerRecord = new ProducerRecord<>(statusTopic, gson.toJson(statusUpdate));
         kafkaTemplate.send(producerRecord);
     }
 }
